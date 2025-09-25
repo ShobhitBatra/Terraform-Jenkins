@@ -1,0 +1,55 @@
+pipeline{
+
+    parameters { 
+        booleanParam(name: 'autoApprove', defaultValue: false, description: 'Automatically run apply after generating plan?')
+    } //autoApprove parameter allows the user to skip manual approval if set true.
+    
+    environment {
+        AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
+        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+    } //AWS credentials are directly injected into environment variables, simpler than withCredentials.
+
+    agent any
+
+    stages{
+        stage('Checkout'){
+            steps{
+                script{
+                    dir("terraform"){
+                        git branch: 'main', url: 'https://github.com/your-repo/terraform-jenkins-demo.git'
+                    }
+                }
+            }
+        }
+        stage('Terraform Init'){
+            steps{
+                sh 'pwd;cd terraform;terraform init'
+            }
+        }
+        stage('Terraform Plan'){
+            steps{
+                sh "pwd;cd terraform/ ; terraform plan -out tfplan"
+                sh 'pwd;cd terraform/ ; terraform show -no-color tfplan > tfplan.txt'
+            }
+        }
+        stage('Approval') {
+            when {
+                not {
+                    equals expected: true, actual: params.autoApprove
+                }
+            }
+            steps {
+                script {
+                    def plan = readFile 'terraform/tfplan.txt'
+                    input message: "Do you want to apply the plan?",
+                    parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
+                }
+            }
+        }
+        stage('Apply'){
+            steps{
+                sh 'pwd; cd terraform/; terraform apply -input=false tfplan'
+            }
+        }
+    }
+}
